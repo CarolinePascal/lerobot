@@ -12,7 +12,6 @@ from lerobot.common.robot_devices.motors.configs import DynamixelMotorsBusConfig
 from lerobot.common.robot_devices.utils import RobotDeviceAlreadyConnectedError, RobotDeviceNotConnectedError
 from lerobot.common.utils.utils import capture_timestamp_utc
 
-PROTOCOL_VERSION = 2.0
 BAUDRATE = 1_000_000
 TIMEOUT_MS = 1000
 
@@ -97,6 +96,41 @@ X_SERIES_CONTROL_TABLE = {
     "Present_Temperature": (146, 1),
 }
 
+LEGACY_SERIES_CONTROL_TABLE = {
+    "Model_Number": (0, 2),
+    "Firmware_Version": (2, 1),
+    "ID": (3, 1),
+    "Baud_Rate": (4, 1),
+    "Return_Delay_Time": (5, 1),
+    "CW_Angle_Limit": (6, 2),
+    "CCW_Angle_Limit": (8, 2),
+    "Temperature_Limit": (11, 1),
+    "Max_Voltage_Limit": (12, 2),
+    "Min_Voltage_Limit": (13, 2),
+    "Max_Torque": (14, 2),
+    "Status_Return_Level": (16, 1),
+    "Alarm_LED": (17, 1),
+    "Shutdown": (18, 1),
+    "Torque_Enable": (24, 1),
+    "LED": (25, 1),
+    "CW_Compliance_Margin": (26, 1),
+    "CCW_Compliance_Margin": (27, 1),
+    "CW_Compliance_Slope": (28, 1),
+    "CCW_Compliance_Slope": (29, 1),
+    "Goal_Position": (30, 2),
+    "Moving_Speed": (32, 2),
+    "Torque_Limit": (34, 2),
+    "Present_Position": (36, 2),
+    "Present_Speed": (38, 2),
+    "Present_Load": (40, 2),
+    "Present_Voltage": (42, 1),
+    "Present_Temperature": (43, 1),
+    "Registered": (44, 1),
+    "Moving": (46, 1),
+    "Lock": (47, 1),
+    "Punch": (48, 2),
+}
+
 X_SERIES_BAUDRATE_TABLE = {
     0: 9_600,
     1: 57_600,
@@ -105,6 +139,18 @@ X_SERIES_BAUDRATE_TABLE = {
     4: 2_000_000,
     5: 3_000_000,
     6: 4_000_000,
+}
+
+LEGACY_SERIES_BAUDRATE_TABLE = {
+    207: 9_600,
+    103: 19_200,
+    34: 57_600,
+    16: 115_200,
+    9: 200_000,
+    7: 250_000,
+    4: 400_000,
+    3: 500_000,
+    1: 1_000_000,
 }
 
 CALIBRATION_REQUIRED = ["Goal_Position", "Present_Position"]
@@ -118,6 +164,7 @@ MODEL_CONTROL_TABLE = {
     "xm430-w350": X_SERIES_CONTROL_TABLE,
     "xm540-w270": X_SERIES_CONTROL_TABLE,
     "xc430-w150": X_SERIES_CONTROL_TABLE,
+    "ax-12a": LEGACY_SERIES_CONTROL_TABLE,
 }
 
 MODEL_RESOLUTION = {
@@ -128,6 +175,7 @@ MODEL_RESOLUTION = {
     "xm430-w350": 4096,
     "xm540-w270": 4096,
     "xc430-w150": 4096,
+    "ax-12a": 1,
 }
 
 MODEL_BAUDRATE_TABLE = {
@@ -138,6 +186,18 @@ MODEL_BAUDRATE_TABLE = {
     "xm430-w350": X_SERIES_BAUDRATE_TABLE,
     "xm540-w270": X_SERIES_BAUDRATE_TABLE,
     "xc430-w150": X_SERIES_BAUDRATE_TABLE,
+    "ax-12a": LEGACY_SERIES_BAUDRATE_TABLE,
+}
+
+MODEL_PROTOCOL_VERSION = {
+    "x_series": 2.0,
+    "xl330-m077": 2.0,
+    "xl330-m288": 2.0,
+    "xl430-w250": 2.0,
+    "xm430-w350": 2.0,
+    "xm540-w270": 2.0,
+    "xc430-w150": 2.0,
+    "ax-12a": 1.0,
 }
 
 NUM_READ_RETRY = 10
@@ -299,6 +359,15 @@ class DynamixelMotorsBus:
         self.port = config.port
         self.motors = config.motors
         self.mock = config.mock
+        
+        #Get protocol version
+        all_protocol_versions = [MODEL_PROTOCOL_VERSION[item[1]] for item in self.motors.values()]
+        if all(x == all_protocol_versions[0] for x in all_protocol_versions):
+            self.protocol_version = all_protocol_versions[0]
+        else:
+            raise NotImplementedError(
+                f"Multiple protocol versions detected in the motors bus ({all_protocol_versions})."
+            )
 
         self.model_ctrl_table = deepcopy(MODEL_CONTROL_TABLE)
         self.model_resolution = deepcopy(MODEL_RESOLUTION)
@@ -323,7 +392,7 @@ class DynamixelMotorsBus:
             import dynamixel_sdk as dxl
 
         self.port_handler = dxl.PortHandler(self.port)
-        self.packet_handler = dxl.PacketHandler(PROTOCOL_VERSION)
+        self.packet_handler = dxl.PacketHandler(self.protocol_version)
 
         try:
             if not self.port_handler.openPort():
@@ -347,7 +416,7 @@ class DynamixelMotorsBus:
             import dynamixel_sdk as dxl
 
         self.port_handler = dxl.PortHandler(self.port)
-        self.packet_handler = dxl.PacketHandler(PROTOCOL_VERSION)
+        self.packet_handler = dxl.PacketHandler(self.protocol_version)
 
         if not self.port_handler.openPort():
             raise OSError(f"Failed to open port '{self.port}'.")
@@ -696,31 +765,44 @@ class DynamixelMotorsBus:
 
         assert_same_address(self.model_ctrl_table, models, data_name)
         addr, bytes = self.model_ctrl_table[model][data_name]
-        group_key = get_group_sync_key(data_name, motor_names)
+        
+        if self.protocol_version == 2.0:
+            
+            group_key = get_group_sync_key(data_name, motor_names)
 
-        if data_name not in self.group_readers:
-            # create new group reader
-            self.group_readers[group_key] = dxl.GroupSyncRead(
-                self.port_handler, self.packet_handler, addr, bytes
-            )
+            if data_name not in self.group_readers:
+                # create new group reader
+                self.group_readers[group_key] = dxl.GroupSyncRead(
+                    self.port_handler, self.packet_handler, addr, bytes
+                )
+                for idx in motor_ids:
+                    self.group_readers[group_key].addParam(idx)
+
+            for _ in range(NUM_READ_RETRY):
+                comm = self.group_readers[group_key].txRxPacket()
+                if comm == dxl.COMM_SUCCESS:
+                    break
+
+            if comm != dxl.COMM_SUCCESS:
+                raise ConnectionError(
+                    f"Read failed due to communication error on port {self.port} for group_key {group_key}: "
+                    f"{self.packet_handler.getTxRxResult(comm)}"
+                )
+
+            values = []
             for idx in motor_ids:
-                self.group_readers[group_key].addParam(idx)
-
-        for _ in range(NUM_READ_RETRY):
-            comm = self.group_readers[group_key].txRxPacket()
-            if comm == dxl.COMM_SUCCESS:
-                break
-
-        if comm != dxl.COMM_SUCCESS:
-            raise ConnectionError(
-                f"Read failed due to communication error on port {self.port} for group_key {group_key}: "
-                f"{self.packet_handler.getTxRxResult(comm)}"
-            )
-
-        values = []
-        for idx in motor_ids:
-            value = self.group_readers[group_key].getData(idx, addr, bytes)
-            values.append(value)
+                value = self.group_readers[group_key].getData(idx, addr, bytes)
+                values.append(value)
+                
+        else:
+            
+            read_routine = self.packet_handler.read1ByteTxRx if bytes == 1 else self.packet_handler.read2ByteTxRx if bytes == 2 else self.packet_handler.read4ByteTxRx
+            
+            values = []    
+            for idx in motor_ids:
+                value, comm, error = read_routine(self.port_handler, idx, addr)
+                if comm == dxl.COMM_SUCCESS and error == 0:
+                    values.append(value)
 
         values = np.array(values)
 
