@@ -77,6 +77,7 @@ def record_audio_from_microphones(
     for microphone_id in microphone_ids:
         config = MicrophoneConfig(microphone_index=microphone_id)
         microphone = Microphone(config)
+        microphone.connect()
         print(
             f"Recording audio from microphone {microphone_id} for {record_time_s} seconds at {microphone.sampling_rate} Hz."
         )
@@ -97,6 +98,11 @@ def record_audio_from_microphones(
 
     for microphone in microphones:
         microphone.stop_recording()
+
+    #Remark : recording may be resumed here if needed
+
+    for microphone in microphones:
+        microphone.disconnect()
 
     print(f"Images have been saved to {output_dir}")
 
@@ -145,6 +151,12 @@ class Microphone:
         self.stop_event = None
         self.logs = {}
 
+        self.is_connected = False
+
+    def connect(self) -> None:
+        if self.is_connected:
+            raise RobotDeviceAlreadyConnectedError(f"Microphone {self.microphone_index} is already connected.")
+        
         if self.mock:
             #TODO(CarolinePascal): Implement mock microphones
             pass
@@ -199,8 +211,11 @@ class Microphone:
             dtype=self.data_type,
             callback=self.audio_callback,
         )
+        #Remark : the blocksize parameter could be passed to the stream to ensure that audio_callback always recieve same length buffers.
+        #However, this may lead to additionnal latency. We thus stick to blocksize=0 which means that audio_callback will recieve varying length buffers, but with no addtional latency.
+        
+        self.is_connected = True
 
-    def audio_callback(self, indata, frames, time, status) -> None :
         if status:
             logging.warning(status)
         #slicing makes copy unecessary 
@@ -218,6 +233,10 @@ class Microphone:
                 file.write(self.queue.get())
 
     def start_recording(self, output_file : str | None = None) -> None: 
+
+        if not self.is_connected:
+            raise RobotDeviceNotConnectedError(f"Microphone {self.microphone_index} is not connected.")
+        
         if output_file is not None:
             self.stop_event = Event()
             self.thread = Thread(target=self.read_write_loop, args=(output_file,))
@@ -228,8 +247,10 @@ class Microphone:
 
         self.logs["start_timestamp"] = capture_timestamp_utc()
 
-
     def stop_recording(self) -> None:
+
+        if not self.is_connected:
+            raise RobotDeviceNotConnectedError(f"Microphone {self.microphone_index} is not connected.")
         
         self.logs["stop_timestamp"] = capture_timestamp_utc()
 
@@ -240,13 +261,25 @@ class Microphone:
             self.stop_event = None
 
         if self.stream.active:
-            self.stream.stop()
-            self.stream.close()
+            self.stream.stop()  #Wait for all buffers to be processed
+            #Remark : stream.abort() flushes the buffers !
 
         self.logs["duration"] = self.logs["stop_timestamp"] - self.logs["start_timestamp"]
 
+    def disconnect(self) -> None:
+
+        if not self.is_connected:
+            raise RobotDeviceNotConnectedError(f"Microphone {self.microphone_index} is not connected.")
+
+        if self.stream.active:
+            self.stop_recording()
+
+        self.stream.close()
+        self.is_connected = False
+
     def __del__(self):
-        self.stop_recording()
+        if getattr(self, "is_connected", False):
+            self.disconnect()
                    
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
