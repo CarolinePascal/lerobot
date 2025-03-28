@@ -247,10 +247,12 @@ def encode_video_frames(
     imgs_dir: Path | str,
     video_path: Path | str,
     fps: int,
+    audio_path: Path | str | None = None,
     vcodec: str = "libsvtav1",
     pix_fmt: str = "yuv420p",
     g: int | None = 2,
     crf: int | None = 30,
+    acodec: str = "aac",    #TODO(CarolinePascal) : investigate Fraunhofer FDK AAC (libfdk_aac) codec and and constant (file size control) /variable (quality control) bitrate options
     fast_decode: int = 0,
     log_level: str | None = "error",
     overwrite: bool = False,
@@ -260,35 +262,49 @@ def encode_video_frames(
     imgs_dir = Path(imgs_dir)
     video_path.parent.mkdir(parents=True, exist_ok=True)
 
-    ffmpeg_args = OrderedDict(
+    ffmpeg_video_args = OrderedDict(
         [
             ("-f", "image2"),
             ("-r", str(fps)),
-            ("-i", str(imgs_dir / "frame_%06d.png")),
+            ("-i", str(Path(imgs_dir) / "frame_%06d.png")),
             ("-vcodec", vcodec),
             ("-pix_fmt", pix_fmt),
         ]
     )
 
+    ffmpeg_audio_args = OrderedDict()
+    if audio_path is not None:
+        audio_path = Path(audio_path)
+        audio_path.parent.mkdir(parents=True, exist_ok=True)
+        ffmpeg_audio_args.update(OrderedDict(
+            [
+                ("-i", str(audio_path)),
+                ("-acodec", acodec),
+            ]
+        ))
+
+    ffmpeg_encoding_args = OrderedDict()
     if g is not None:
-        ffmpeg_args["-g"] = str(g)
-
+        ffmpeg_encoding_args["-g"] = str(g)
     if crf is not None:
-        ffmpeg_args["-crf"] = str(crf)
-
+        ffmpeg_encoding_args["-crf"] = str(crf)
     if fast_decode:
         key = "-svtav1-params" if vcodec == "libsvtav1" else "-tune"
         value = f"fast-decode={fast_decode}" if vcodec == "libsvtav1" else "fastdecode"
-        ffmpeg_args[key] = value
+        ffmpeg_encoding_args[key] = value
 
     if log_level is not None:
-        ffmpeg_args["-loglevel"] = str(log_level)
+        ffmpeg_encoding_args["-loglevel"] = str(log_level)
 
-    ffmpeg_args = [item for pair in ffmpeg_args.items() for item in pair]
+    ffmpeg_args = [item for pair in ffmpeg_video_args.items() for item in pair]
+    ffmpeg_args += [item for pair in ffmpeg_audio_args.items() for item in pair]
+    ffmpeg_args += [item for pair in ffmpeg_encoding_args.items() for item in pair]
     if overwrite:
         ffmpeg_args.append("-y")
 
     ffmpeg_cmd = ["ffmpeg"] + ffmpeg_args + [str(video_path)]
+
+    print(ffmpeg_cmd)
     # redirect stdin to subprocess.DEVNULL to prevent reading random keyboard inputs from terminal
     subprocess.run(ffmpeg_cmd, check=True, stdin=subprocess.DEVNULL)
 

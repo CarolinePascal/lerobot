@@ -36,6 +36,7 @@ from lerobot.common.datasets.image_writer import AsyncImageWriter, write_image
 from lerobot.common.datasets.utils import (
     DEFAULT_FEATURES,
     DEFAULT_IMAGE_PATH,
+    DEFAULT_AUDIO_PATH,
     INFO_PATH,
     TASKS_PATH,
     append_jsonlines,
@@ -184,6 +185,11 @@ class LeRobotDatasetMetadata:
     def camera_keys(self) -> list[str]:
         """Keys to access visual modalities (regardless of their storage method)."""
         return [key for key, ft in self.features.items() if ft["dtype"] in ["video", "image"]]
+    
+    @property
+    def audio_keys(self) -> list[str]:
+        """Keys to access audio modalities."""
+        return [key for key, ft in self.features.items() if ft["dtype"] == "audio"]
 
     @property
     def names(self) -> dict[str, list | dict]:
@@ -309,6 +315,7 @@ class LeRobotDatasetMetadata:
         robot_type: str | None = None,
         features: dict | None = None,
         use_videos: bool = True,
+        use_audio: bool = True,
     ) -> "LeRobotDatasetMetadata":
         """Creates metadata for a LeRobotDataset."""
         obj = cls.__new__(cls)
@@ -364,6 +371,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         force_cache_sync: bool = False,
         download_videos: bool = True,
         video_backend: str | None = None,
+        audio_backend: str | None = None,
     ):
         """
         2 modes are available for instantiating this class, depending on 2 different use cases:
@@ -475,6 +483,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.tolerance_s = tolerance_s
         self.revision = revision if revision else CODEBASE_VERSION
         self.video_backend = video_backend if video_backend else get_safe_default_codec()
+        self.audio_backend = audio_backend if audio_backend else "pyav" #Waiting for torchcodec release #TODO(CarolinePascal)
         self.delta_indices = None
 
         # Unused attributes
@@ -499,7 +508,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
             self.hf_dataset = self.load_hf_dataset()
         except (AssertionError, FileNotFoundError, NotADirectoryError):
             self.revision = get_safe_version(self.repo_id, self.revision)
-            self.download_episodes(download_videos)
+            self.download_episodes(download_videos) #Sould load audio as well #TODO(CarolinePascal): separate audio from video
             self.hf_dataset = self.load_hf_dataset()
 
         self.episode_data_index = get_episode_data_index(self.meta.episodes, self.episodes)
@@ -776,6 +785,10 @@ class LeRobotDataset(torch.utils.data.Dataset):
             image_key=image_key, episode_index=episode_index, frame_index=frame_index
         )
         return self.root / fpath
+    
+    def get_audio_file_path(self, episode_index: int, audio_key: str) -> Path:
+        fpath = DEFAULT_AUDIO_PATH.format(audio_key=audio_key, episode_index=episode_index)
+        return self.root / fpath
 
     def _save_image(self, image: torch.Tensor | np.ndarray | PIL.Image.Image, fpath: Path) -> None:
         if self.image_writer is None:
@@ -980,7 +993,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
             img_dir = self._get_image_file_path(
                 episode_index=episode_index, image_key=key, frame_index=0
             ).parent
-            encode_video_frames(img_dir, video_path, self.fps, overwrite=True)
+            audio_path = self.get_audio_file_path(episode_index, key)
+            encode_video_frames(img_dir, video_path, self.fps, audio_path=audio_path, overwrite=True)
 
         return video_paths
 
