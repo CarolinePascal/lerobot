@@ -28,6 +28,7 @@ from lerobot.common.robot_devices.motors.configs import (
     FeetechMotorsBusConfig,
     MotorsBusConfig,
 )
+from lerobot.common.robot_devices.microphones.configs import MicrophoneConfig
 
 
 @dataclass
