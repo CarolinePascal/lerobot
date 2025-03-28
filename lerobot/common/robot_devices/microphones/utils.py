@@ -14,7 +14,7 @@
 
 from typing import Protocol
 
-from lerobot.common.robot_devices.microphones.configs import MicrophoneConfig
+from lerobot.common.robot_devices.microphones.configs import MicrophoneConfig, MicrophoneConfigBase
 
 # Defines a microphone type
 class Microphone(Protocol):
@@ -23,7 +23,7 @@ class Microphone(Protocol):
     def start_recording(self, output_file: str | None = None): ...
     def stop_recording(self): ...
 
-def make_microphones_from_configs(microphone_configs: dict[str, MicrophoneConfig]) -> list[Microphone]:
+def make_microphones_from_configs(microphone_configs: dict[str, MicrophoneConfigBase]) -> list[Microphone]:
     microphones = {}
 
     for key, cfg in microphone_configs.items():
