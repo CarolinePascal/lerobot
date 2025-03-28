@@ -196,7 +196,7 @@ class Microphone:
         #TODO(CarolinePascal): Rationalize data types handling according to targeted file format and precision
         if self.data_type is not None:
             if self.data_type not in ["int16", "int32", "float32"]:
-                raise ValueError(f"Data type {self.data_type} is not supported. Supported data types are ['int8', 'uint8', 'int16', 'int32', 'float32'].")
+                raise OSError(f"Data type {self.data_type} is not supported. Supported data types are ['int8', 'uint8', 'int16', 'int32', 'float32'].")
         else:
             self.data_type = "float32"
 
@@ -209,19 +209,20 @@ class Microphone:
             samplerate=self.sampling_rate,
             channels=max(self.channels)+1,
             dtype=self.data_type,
-            callback=self.audio_callback,
+            callback=self._audio_callback,
         )
         #Remark : the blocksize parameter could be passed to the stream to ensure that audio_callback always recieve same length buffers.
         #However, this may lead to additionnal latency. We thus stick to blocksize=0 which means that audio_callback will recieve varying length buffers, but with no addtional latency.
         
         self.is_connected = True
 
+    def _audio_callback(self, indata, frames, time, status) -> None :
         if status:
             logging.warning(status)
         #slicing makes copy unecessary 
         self.queue.put(indata[:,self.channels])
 
-    def read_write_loop(self, output_file : Path) -> None:
+    def _read_write_loop(self, output_file : Path) -> None:
         output_file = Path(output_file)
         if output_file.exists():
             shutil.rmtree(
@@ -239,7 +240,7 @@ class Microphone:
         
         if output_file is not None:
             self.stop_event = Event()
-            self.thread = Thread(target=self.read_write_loop, args=(output_file,))
+            self.thread = Thread(target=self._read_write_loop, args=(output_file,))
             self.thread.daemon = True
             self.thread.start()
             
