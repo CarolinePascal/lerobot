@@ -91,6 +91,9 @@ def compute_episode_stats(episode_data: dict[str, list[str] | np.ndarray], featu
             ep_ft_array = sample_images(data)  # data is a list of image paths
             axes_to_reduce = (0, 2, 3)  # keep channel dim
             keepdims = True
+        elif features[key]["dtype"] == "audio":
+            ep_stats[key] = {}  #TODO(Caroline Pascal) : Find equivalent ?
+            break
         else:
             ep_ft_array = data  # data is already a np.ndarray
             axes_to_reduce = 0  # compute stats over the first axis
