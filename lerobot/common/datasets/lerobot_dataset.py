@@ -36,7 +36,8 @@ from lerobot.common.datasets.image_writer import AsyncImageWriter, write_image
 from lerobot.common.datasets.utils import (
     DEFAULT_FEATURES,
     DEFAULT_IMAGE_PATH,
-    DEFAULT_AUDIO_PATH,
+    DEFAULT_RAW_AUDIO_PATH,
+    DEFAULT_COMPRESSED_AUDIO_PATH,
     INFO_PATH,
     TASKS_PATH,
     append_jsonlines,
@@ -142,6 +143,11 @@ class LeRobotDatasetMetadata:
         ep_chunk = self.get_episode_chunk(ep_index)
         fpath = self.video_path.format(episode_chunk=ep_chunk, video_key=vid_key, episode_index=ep_index)
         return Path(fpath)
+    
+    def get_compressed_audio_file_path(self, episode_index: int, audio_key: str) -> Path:
+        episode_chunk = self.get_episode_chunk(episode_index)
+        fpath = self.audio_path.format(episode_chunk=episode_chunk, audio_key=audio_key, episode_index=episode_index)
+        return self.root / fpath
 
     def get_episode_chunk(self, ep_index: int) -> int:
         return ep_index // self.chunks_size
@@ -155,6 +161,11 @@ class LeRobotDatasetMetadata:
     def video_path(self) -> str | None:
         """Formattable string for the video files."""
         return self.info["video_path"]
+    
+    @property
+    def audio_path(self) -> str | None:
+        """Formattable string for the audio files."""
+        return self.info["audio_path"]
 
     @property
     def robot_type(self) -> str | None:
@@ -786,8 +797,8 @@ class LeRobotDataset(torch.utils.data.Dataset):
         )
         return self.root / fpath
     
-    def get_audio_file_path(self, episode_index: int, audio_key: str) -> Path:
-        fpath = DEFAULT_AUDIO_PATH.format(audio_key=audio_key, episode_index=episode_index)
+    def _get_raw_audio_file_path(self, episode_index: int, audio_key: str) -> Path:
+        fpath = DEFAULT_RAW_AUDIO_PATH.format(audio_key=audio_key, episode_index=episode_index)
         return self.root / fpath
 
     def _save_image(self, image: torch.Tensor | np.ndarray | PIL.Image.Image, fpath: Path) -> None:
