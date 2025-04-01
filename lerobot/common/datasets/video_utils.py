@@ -69,7 +69,6 @@ def decode_video_frames(
     else:
         raise ValueError(f"Unsupported video backend: {backend}")
 
-
 def decode_video_frames_torchvision(
     video_path: Path | str,
     timestamps: list[float],
@@ -167,7 +166,6 @@ def decode_video_frames_torchvision(
     assert len(timestamps) == len(closest_frames)
     return closest_frames
 
-
 def decode_video_frames_torchcodec(
     video_path: Path | str,
     timestamps: list[float],
@@ -242,6 +240,41 @@ def decode_video_frames_torchcodec(
     assert len(timestamps) == len(closest_frames)
     return closest_frames
 
+def encode_audio(
+    input_path: Path | str,
+    output_path: Path | str,
+    codec: str = "aac",
+    log_level: str | None = "error",
+    overwrite: bool = False,
+) -> None:
+    """Encodes an audio file using ffmpeg."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    ffmpeg_args = OrderedDict(
+        [
+            ("-i", str(input_path)),
+            ("-acodec", codec),
+        ]
+    )
+
+    if log_level is not None:
+        ffmpeg_args["-loglevel"] = str(log_level)
+
+    ffmpeg_args = [item for pair in ffmpeg_args.items() for item in pair]
+    if overwrite:
+        ffmpeg_args.append("-y")
+
+    ffmpeg_cmd = ["ffmpeg"] + ffmpeg_args + [str(output_path)]
+
+    # redirect stdin to subprocess.DEVNULL to prevent reading random keyboard inputs from terminal
+    subprocess.run(ffmpeg_cmd, check=True, stdin=subprocess.DEVNULL)
+
+    if not output_path.exists():
+        raise OSError(
+            f"Video encoding did not work. File not found: {output_path}. "
+            f"Try running the command manually to debug: `{''.join(ffmpeg_cmd)}`"
+        )
 
 def encode_video_frames(
     imgs_dir: Path | str,
@@ -268,7 +301,6 @@ def encode_video_frames(
             ("-r", str(fps)),
             ("-i", str(Path(imgs_dir) / "frame_%06d.png")),
             ("-vcodec", vcodec),
-            ("-pix_fmt", pix_fmt),
         ]
     )
 
@@ -283,7 +315,11 @@ def encode_video_frames(
             ]
         ))
 
-    ffmpeg_encoding_args = OrderedDict()
+    ffmpeg_encoding_args = OrderedDict(
+        [
+            ("-pix_fmt", pix_fmt),
+        ]
+    )
     if g is not None:
         ffmpeg_encoding_args["-g"] = str(g)
     if crf is not None:
@@ -292,7 +328,7 @@ def encode_video_frames(
         key = "-svtav1-params" if vcodec == "libsvtav1" else "-tune"
         value = f"fast-decode={fast_decode}" if vcodec == "libsvtav1" else "fastdecode"
         ffmpeg_encoding_args[key] = value
-
+    
     if log_level is not None:
         ffmpeg_encoding_args["-loglevel"] = str(log_level)
 
@@ -304,7 +340,6 @@ def encode_video_frames(
 
     ffmpeg_cmd = ["ffmpeg"] + ffmpeg_args + [str(video_path)]
 
-    print(ffmpeg_cmd)
     # redirect stdin to subprocess.DEVNULL to prevent reading random keyboard inputs from terminal
     subprocess.run(ffmpeg_cmd, check=True, stdin=subprocess.DEVNULL)
 

@@ -71,6 +71,7 @@ from lerobot.common.datasets.video_utils import (
     VideoFrame,
     decode_video_frames,
     encode_video_frames,
+    encode_audio,
     get_safe_default_codec,
     get_video_info,
 )
@@ -340,7 +341,6 @@ class LeRobotDatasetMetadata:
         robot_type: str | None = None,
         features: dict | None = None,
         use_videos: bool = True,
-        use_audio: bool = True,
     ) -> "LeRobotDatasetMetadata":
         """Creates metadata for a LeRobotDataset."""
         obj = cls.__new__(cls)
@@ -929,6 +929,9 @@ class LeRobotDataset(torch.utils.data.Dataset):
             for key in self.meta.video_keys:
                 episode_buffer[key] = video_paths[key]
 
+        if len(self.meta.audio_keys) > 0:
+            _ = self.encode_episode_audio(episode_index)
+            
         # `meta.save_episode` be executed after encoding the videos
         self.meta.save_episode(episode_index, episode_length, episode_tasks, ep_stats)
 
@@ -952,6 +955,13 @@ class LeRobotDataset(torch.utils.data.Dataset):
         img_dir = self.root / "images"
         if img_dir.is_dir():
             shutil.rmtree(self.root / "images")
+
+        # delete raw audio
+        raw_audio_files = list(self.root.rglob("*.wav"))
+        for raw_audio_file in raw_audio_files:
+            raw_audio_file.unlink()
+            if len(list(raw_audio_file.parent.iterdir())) == 0:
+                raw_audio_file.parent.rmdir()
 
         if not episode_data:  # Reset the buffer
             self.episode_buffer = self.create_episode_buffer()
@@ -1020,19 +1030,45 @@ class LeRobotDataset(torch.utils.data.Dataset):
         since video encoding with ffmpeg is already using multithreading.
         """
         video_paths = {}
-        for key in self.meta.video_keys:
-            video_path = self.root / self.meta.get_video_file_path(episode_index, key)
-            video_paths[key] = str(video_path)
+        for video_key in self.meta.video_keys:
+            video_path = self.root / self.meta.get_video_file_path(episode_index, video_key)
+            video_paths[video_key] = str(video_path)
             if video_path.is_file():
                 # Skip if video is already encoded. Could be the case when resuming data recording.
                 continue
             img_dir = self._get_image_file_path(
-                episode_index=episode_index, image_key=key, frame_index=0
+                episode_index=episode_index, image_key=video_key, frame_index=0
             ).parent
-            audio_path = self.get_audio_file_path(episode_index, key)
-            encode_video_frames(img_dir, video_path, self.fps, audio_path=audio_path, overwrite=True)
+
+            audio_path = None
+            if self.meta.features[video_key]["audio"] is not None:
+                audio_key = self.meta.features[video_key]["audio"]
+                audio_path = self._get_raw_audio_file_path(episode_index, audio_key)
+
+            encode_video_frames(img_dir, video_path, self.fps, audio_path=audio_path, vcodec="h264", overwrite=True)
 
         return video_paths
+    
+    def encode_episode_audio(self, episode_index: int) -> dict:
+        """
+        Use ffmpeg to convert .wav raw audio files into .m4a audio files.
+        Note: `encode_episode_audio` is a blocking call. Making it asynchronous shouldn't speedup encoding,
+        since video encoding with ffmpeg is already using multithreading.
+        """
+        audio_paths = {}
+        bound_audio_keys = {self.meta.features[video_key]["audio"] for video_key in self.meta.video_keys if self.meta.features[video_key]["audio"] is not None}
+        for audio_key in set(self.meta.audio_keys) - bound_audio_keys:
+            input_audio_path = self.root / self._get_raw_audio_file_path(episode_index, audio_key)
+            output_audio_path = self.root / self.meta.get_compressed_audio_file_path(episode_index, audio_key)
+            
+            audio_paths[audio_key] = str(output_audio_path)
+            if output_audio_path.is_file():
+                # Skip if video is already encoded. Could be the case when resuming data recording.
+                continue
+
+            encode_audio(input_audio_path, output_audio_path, overwrite=True)
+
+        return audio_paths
 
     @classmethod
     def create(
