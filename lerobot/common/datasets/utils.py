@@ -366,7 +366,7 @@ def get_safe_version(repo_id: str, version: str | packaging.version.Version) -> 
 def get_hf_features_from_features(features: dict) -> datasets.Features:
     hf_features = {}
     for key, ft in features.items():
-        if ft["dtype"] == "video":
+        if ft["dtype"] == "video" or ft["dtype"] == "audio":
             continue
         elif ft["dtype"] == "image":
             hf_features[key] = datasets.Image()
@@ -401,7 +401,7 @@ def get_features_from_robot(robot: Robot, use_videos: bool = True) -> dict:
     if robot.microphones:
         microphones_ft = {
             key: {"dtype": "audio", **ft}
-            for key, ft in robot.microphone_features.items()
+            for key, ft in robot.microphones_features.items()
         }
     return {**robot.motor_features, **camera_ft, **microphones_ft, **DEFAULT_FEATURES}
 
@@ -731,6 +731,7 @@ def validate_features_presence(
 ):
     error_message = ""
     missing_features = expected_features - actual_features
+    missing_features =  {feature for feature in missing_features if "observation.audio" not in feature} #TODO(CarolinePascal) : Add just a boolean with thread status maybe ?
     extra_features = actual_features - (expected_features | optional_features)
 
     if missing_features or extra_features:

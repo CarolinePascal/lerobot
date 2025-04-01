@@ -282,6 +282,9 @@ class LeRobotDatasetMetadata:
         if len(self.video_keys) > 0:
             self.update_video_info()
 
+        if len(self.audio_keys) > 0:
+            self.update_audio_info()
+
         write_info(self.info, self.root)
 
         episode_dict = {
@@ -305,6 +308,16 @@ class LeRobotDatasetMetadata:
             if not self.features[key].get("info", None):
                 video_path = self.root / self.get_video_file_path(ep_index=0, vid_key=key)
                 self.info["features"][key]["info"] = get_video_info(video_path)
+
+    def update_audio_info(self) -> None:
+        """
+        Warning: this function writes info from first episode audio, implicitly assuming that all audio have
+        been encoded the same way. Also, this means it assumes the first episode exists.
+        """
+        for key in self.audio_keys:
+            if not self.features[key].get("info", None):
+                audio_path = self.root / self.get_compressed_audio_file_path(ep_index=0, audio_key=key)
+                self.info["features"][key]["info"] = get_video_info(audio_path)
 
     def __repr__(self):
         feature_keys = list(self.features)
@@ -903,7 +916,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         for key, ft in self.features.items():
             # index, episode_index, task_index are already processed above, and image and video
             # are processed separately by storing image path and frame info as meta data
-            if key in ["index", "episode_index", "task_index"] or ft["dtype"] in ["image", "video"]:
+            if key in ["index", "episode_index", "task_index"] or ft["dtype"] in ["image", "video", "audio"]:
                 continue
             episode_buffer[key] = np.stack(episode_buffer[key])
 
