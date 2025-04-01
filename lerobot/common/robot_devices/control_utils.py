@@ -244,10 +244,9 @@ def control_loop(
     timestamp = 0
     start_episode_t = time.perf_counter()
 
-    #TODO(CarolinePascal) : Find a more elegant way to get audio file path...
     if teleoperate and dataset is not None:
         for microphone_key, microphone in robot.microphones.items():
-            microphone.start_recording(output_file = dataset.get_audio_file_path(dataset.num_episodes, microphone_key))
+            dataset.add_microphone_recording(microphone, microphone_key)
 
     while timestamp < control_time_s:
         start_loop_t = time.perf_counter()
@@ -288,8 +287,9 @@ def control_loop(
             events["exit_early"] = False
             break
 
-    for _, microphone in robot.microphones.items():
-        microphone.stop_recording()
+    if teleoperate and dataset is not None:
+        for _, microphone in robot.microphones.items():
+            microphone.stop_recording()
 
 
 def reset_environment(robot, events, reset_time_s, fps):
