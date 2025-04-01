@@ -40,6 +40,7 @@ from lerobot.common.datasets.utils import (
     DEFAULT_COMPRESSED_AUDIO_PATH,
     INFO_PATH,
     TASKS_PATH,
+    DEFAULT_AUDIO_CHUNK_DURATION,
     append_jsonlines,
     backward_compatible_episodes_stats,
     check_delta_timestamps,
@@ -72,6 +73,7 @@ from lerobot.common.datasets.video_utils import (
     decode_video_frames,
     encode_video_frames,
     encode_audio,
+    decode_audio,
     get_safe_default_codec,
     get_video_info,
 )
@@ -508,7 +510,7 @@ class LeRobotDataset(torch.utils.data.Dataset):
         self.tolerance_s = tolerance_s
         self.revision = revision if revision else CODEBASE_VERSION
         self.video_backend = video_backend if video_backend else get_safe_default_codec()
-        self.audio_backend = audio_backend if audio_backend else "pyav" #Waiting for torchcodec release #TODO(CarolinePascal)
+        self.audio_backend = audio_backend if audio_backend else "ffmpeg" #Waiting for torchcodec release #TODO(CarolinePascal)
         self.delta_indices = None
 
         # Unused attributes
@@ -711,13 +713,29 @@ class LeRobotDataset(torch.utils.data.Dataset):
         }
         return query_indices, padding
 
-    def _get_query_timestamps(
+    def _get_query_timestamps_video(
         self,
         current_ts: float,
         query_indices: dict[str, list[int]] | None = None,
     ) -> dict[str, list[float]]:
         query_timestamps = {}
         for key in self.meta.video_keys:
+            if query_indices is not None and key in query_indices:
+                timestamps = self.hf_dataset.select(query_indices[key])["timestamp"]
+                query_timestamps[key] = torch.stack(timestamps).tolist()
+            else:
+                query_timestamps[key] = [current_ts]
+
+        return query_timestamps
+    
+    #TODO(CarolinePascal): add variable query durations
+    def _get_query_timestamps_audio(
+        self,
+        current_ts: float,
+        query_indices: dict[str, list[int]] | None = None,
+    ) -> dict[str, list[float]]:   
+        query_timestamps = {}
+        for key in self.meta.audio_keys:
             if query_indices is not None and key in query_indices:
                 timestamps = self.hf_dataset.select(query_indices[key])["timestamp"]
                 query_timestamps[key] = torch.stack(timestamps).tolist()
@@ -747,6 +765,21 @@ class LeRobotDataset(torch.utils.data.Dataset):
 
         return item
 
+    #TODO(CarolinePascal): add variable query durations 
+    def _query_audio(self, query_timestamps: dict[str, list[float]], query_duration: float, ep_idx: int) -> dict[str, torch.Tensor]:
+        item = {}
+        bound_audio_keys_mapping = {self.meta.features[video_key]["audio"]:video_key for video_key in self.meta.video_keys if self.meta.features[video_key]["audio"] is not None}
+        for audio_key, query_ts in query_timestamps.items():
+            #Audio stored with video in a single .mp4 file
+            if audio_key in bound_audio_keys_mapping.keys():
+                audio_path = self.root / self.meta.get_video_file_path(ep_idx, bound_audio_keys_mapping[audio_key])
+            #Audio stored alone in a separate .m4a file
+            else:
+                audio_path = self.root / self.meta.get_compressed_audio_file_path(ep_idx, audio_key)
+            audio_chunk = decode_audio(audio_path, query_ts, query_duration, self.audio_backend)
+            item[audio_key] = audio_chunk.squeeze(0)
+        return item
+
     def _add_padding_keys(self, item: dict, padding: dict[str, list[bool]]) -> dict:
         for key, val in padding.items():
             item[key] = torch.BoolTensor(val)
@@ -767,11 +800,16 @@ class LeRobotDataset(torch.utils.data.Dataset):
             for key, val in query_result.items():
                 item[key] = val
 
-        if len(self.meta.video_keys) > 0:
+        if len(self.meta.video_keys) > 0 or len(self.meta.audio_keys) > 0:
             current_ts = item["timestamp"].item()
-            query_timestamps = self._get_query_timestamps(current_ts, query_indices)
+
+            query_timestamps = self._get_query_timestamps_video(current_ts, query_indices)
             video_frames = self._query_videos(query_timestamps, ep_idx)
-            item = {**video_frames, **item}
+            item = {**item, **video_frames}
+
+            query_timestamps = self._get_query_timestamps_audio(current_ts, query_indices)
+            audio_chunks = self._query_audio(query_timestamps, DEFAULT_AUDIO_CHUNK_DURATION, ep_idx)
+            item = {**item, **audio_chunks}
 
         if self.image_transforms is not None:
             image_keys = self.meta.camera_keys

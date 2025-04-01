@@ -26,8 +26,11 @@ from typing import Any, ClassVar
 import pyarrow as pa
 import torch
 import torchvision
+import torchaudio
 from datasets.features.features import register_feature
 from PIL import Image
+
+from numpy import ceil
 
 
 def get_safe_default_codec():
@@ -39,7 +42,72 @@ def get_safe_default_codec():
         )
         return "pyav"
 
+def decode_audio(
+    audio_path: Path | str,
+    timestamps: list[float],
+    duration: float,
+    backend: str | None = "ffmpeg",
+) -> torch.Tensor:
+    """
+    Decodes audio using the specified backend.
+    Args:
+        audio_path (Path): Path to the audio file.
+        timestamps (list[float]): List of timestamps to extract frames.
+        tolerance_s (float): Allowed deviation in seconds for frame retrieval.
+        backend (str, optional): Backend to use for decoding. Defaults to "pyav".
 
+    Returns:
+        torch.Tensor: Decoded frames.
+
+    Currently supports pyav.
+    """
+    if backend == "torchcodec":
+        raise NotImplementedError("torchcodec is not yet supported for audio decoding")
+    elif backend == "ffmpeg":
+        return decode_audio_torchvision(audio_path, timestamps, duration)
+    else:
+        raise ValueError(f"Unsupported video backend: {backend}")
+
+def decode_audio_torchvision(
+    audio_path: Path | str,
+    timestamps: list[float],   
+    duration: float,   
+    log_loaded_timestamps: bool = False,
+) -> torch.Tensor:
+    
+    #TODO(CarolinePascal) : add channels selection
+    audio_path = str(audio_path)
+
+    reader = torchaudio.io.StreamReader(src=audio_path)
+    audio_sampling_rate = reader.get_src_stream_info(reader.default_audio_stream).sample_rate
+
+    #TODO(CarolinePascal) : sort timestamps ?
+
+    reader.add_basic_audio_stream(
+        frames_per_chunk = int(ceil(duration * audio_sampling_rate)),    #Too much is better than not enough
+        buffer_chunk_size = -1, #No dropping frames
+    )
+
+    audio_chunks = []
+    for ts in timestamps:
+        reader.seek(ts) #Default to closest audio sample
+        status = reader.fill_buffer()
+        if status != 0:
+            logging.warning("Audio stream reached end of recording before decoding desired timestamps.")
+
+        current_audio_chunk = reader.pop_chunks()[0]
+
+        if log_loaded_timestamps:
+            logging.info(f"audio chunk loaded at starting timestamp={current_audio_chunk["pts"]:.4f} with duration={len(current_audio_chunk) / audio_sampling_rate:.4f}")
+        
+        audio_chunks.append(current_audio_chunk)
+
+    audio_chunks = torch.stack(audio_chunks)
+    #TODO(CarolinePascal) : pytorch format conversion ?
+
+    assert len(timestamps) == len(audio_chunks)
+    return audio_chunks
+    
 def decode_video_frames(
     video_path: Path | str,
     timestamps: list[float],

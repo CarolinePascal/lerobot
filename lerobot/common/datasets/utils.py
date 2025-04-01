@@ -58,6 +58,7 @@ DEFAULT_IMAGE_PATH = "images/{image_key}/episode_{episode_index:06d}/frame_{fram
 DEFAULT_RAW_AUDIO_PATH = "audio/{audio_key}/episode_{episode_index:06d}.wav"
 DEFAULT_COMPRESSED_AUDIO_PATH = "audio/chunk-{episode_chunk:03d}/{audio_key}/episode_{episode_index:06d}.m4a"
 
+DEFAULT_AUDIO_CHUNK_DURATION = 0.5  # seconds
 
 DATASET_CARD_TEMPLATE = """
 ---
