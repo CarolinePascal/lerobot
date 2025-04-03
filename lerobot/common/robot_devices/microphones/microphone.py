@@ -119,16 +119,13 @@ class Microphone:
     config = MicrophoneConfig(microphone_index=0, sampling_rate=16000, channels=[1], data_type="int16")
     microphone = Microphone(config)
 
+    microphone.connect()
     microphone.start_recording("some/output/file.wav")
     ...
-    microphone.stop_recording()
-
-    #OR
-
-    microphone.start_recording()
+    audio_readings = microphone.read()  #Gets all recorded audio data since the last read or since the beginning of the recording
     ...
     microphone.stop_recording()
-    last_recorded_audio_chunk = microphone.queue.get()
+    microphone.disconnect()
     ```
     """
 
@@ -145,12 +142,16 @@ class Microphone:
 
         #Input audio stream
         self.stream = None
-        #Thread-safe concurrent queue to store the recorded audio
-        self.queue = Queue()
-        self.thread = None
-        self.stop_event = None
-        self.logs = {}
 
+        #Thread-safe concurrent queue to store the recorded/read audio
+        self.record_queue = Queue()
+        self.read_queue = Queue()
+
+        #Thread to handle data reading and file writing in a separate thread (safely)
+        self.record_thread = None
+        self.record_stop_event = None
+
+        self.logs = {}
         self.is_connected = False
 
     def connect(self) -> None:
@@ -190,8 +191,8 @@ class Microphone:
             raise OSError(
                 f"Some of the provided channels {self.channels} are outside the maximum channel range of the microphone {actual_microphone['max_input_channels']}."
             )
-        else:
-            self.channels = np.arange(1, 1 + actual_microphone["max_input_channels"])
+        elif self.channels is None:
+            self.channels = np.arange(1, actual_microphone["max_input_channels"])
 
         #TODO(CarolinePascal): Rationalize data types handling according to targeted file format and precision
         if self.data_type is not None:
@@ -219,32 +220,66 @@ class Microphone:
     def _audio_callback(self, indata, frames, time, status) -> None :
         if status:
             logging.warning(status)
-        #slicing makes copy unecessary 
-        self.queue.put(indata[:,self.channels])
+        # Slicing makes copy unecessary 
+        # Two separate queues are necessary because .get() also pops the data from the queue
+        self.record_queue.put(indata[:,self.channels])
+        self.read_queue.put(indata[:,self.channels])
 
-    def _read_write_loop(self, output_file : Path) -> None:
-        output_file = Path(output_file)
-        if output_file.exists():
-            shutil.rmtree(
-                output_file,
-            )
+    def _record_loop(self, output_file: Path) -> None:
         with sf.SoundFile(output_file, mode='x', samplerate=self.sampling_rate,
                       channels=max(self.channels)+1, subtype=sf.default_subtype(output_file.suffix[1:])) as file:
-            while not self.stop_event.is_set():
-                file.write(self.queue.get())
+            while not self.record_stop_event.is_set():
+                file.write(self.record_queue.get())
+    
+    def _read(self) -> np.ndarray:
+        """
+        Gets audio data from the queue and coverts it to a numpy array.
+        -> PROS : Inherently thread safe, no need to lock the queue, lightweight CPU usage
+        -> CONS : Reading duration does not scale well with the number of channels and reading duration
+        """
+        if not self.read_queue.empty():
+            audio_readings, self.read_queue = self.read_queue, Queue()
+            audio_readings = np.array(audio_readings.queue, dtype=self.data_type).reshape(-1, len(self.channels))
+        else:
+            audio_readings = np.empty((0, len(self.channels)), dtype=self.data_type)
+
+        return audio_readings
+
+    def read(self) -> np.ndarray:
+
+        if not self.is_connected:
+            raise RobotDeviceNotConnectedError(f"Microphone {self.microphone_index} is not connected.")
+        if not self.stream.active:
+            raise RuntimeError(f"Microphone {self.microphone_index} is not recording.")
+        
+        start_time = time.perf_counter()
+
+        audio_readings = self._read()
+
+        self.logs["delta_timestamp_s"] = time.perf_counter() - start_time
+        self.logs["timestamp_utc"] = capture_timestamp_utc()
+
+        return audio_readings
 
     def start_recording(self, output_file : str | None = None) -> None: 
 
         if not self.is_connected:
             raise RobotDeviceNotConnectedError(f"Microphone {self.microphone_index} is not connected.")
-        
+
+        #Recording case
         if output_file is not None:
-            self.stop_event = Event()
-            self.thread = Thread(target=self._read_write_loop, args=(output_file,))
-            self.thread.daemon = True
-            self.thread.start()
+            output_file = Path(output_file)
+            if output_file.exists():
+                output_file.unlink()
+
+            self.record_stop_event = Event()
+            self.record_thread = Thread(target=self._record_loop, args=(output_file,))
+            self.record_thread.daemon = True
+            self.record_thread.start()
             
         self.logs["start_timestamp"] = capture_timestamp_utc()
+        self.logs["start_stream_timestamp"] = self.stream.time #Timestamp computed according to the same clock used in the stream callback. Might be different from capture_timestamp_utc().
+        
         self.stream.start()
 
     def stop_recording(self) -> None:
@@ -253,18 +288,17 @@ class Microphone:
             raise RobotDeviceNotConnectedError(f"Microphone {self.microphone_index} is not connected.")
         
         self.logs["stop_timestamp"] = capture_timestamp_utc()
+        self.logs["stop_stream_timestamp"] = self.stream.time #Timestamp computed according to the same clock used in the stream callback. Might be different from capture_timestamp_utc().
 
-        if self.thread is not None:
-            self.stop_event.set()
-            self.thread.join()
-            self.thread = None
-            self.stop_event = None
+        if self.record_thread is not None:
+            self.record_stop_event.set()
+            self.record_thread.join()
+            self.record_thread = None
+            self.record_stop_event = None
 
         if self.stream.active:
             self.stream.stop()  #Wait for all buffers to be processed
             #Remark : stream.abort() flushes the buffers !
-
-        self.logs["duration"] = self.logs["stop_timestamp"] - self.logs["start_timestamp"]
 
     def disconnect(self) -> None:
 

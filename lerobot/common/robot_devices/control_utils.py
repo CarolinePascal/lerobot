@@ -244,9 +244,14 @@ def control_loop(
     timestamp = 0
     start_episode_t = time.perf_counter()
 
-    if teleoperate and dataset is not None:
+    if dataset is not None:
         for microphone_key, microphone in robot.microphones.items():
+            #Start recording both in file writing and data reading mode
             dataset.add_microphone_recording(microphone, microphone_key)
+    else:
+        for _, microphone in robot.microphones.items():
+            # Start recording only in data reading mode
+            microphone.start_recording()
 
     while timestamp < control_time_s:
         start_loop_t = time.perf_counter()
@@ -266,7 +271,9 @@ def control_loop(
                 action = {"action": action}
 
         if dataset is not None:
-            frame = {**observation, **action, "task": single_task}
+            #Remove audio frames which are directly written in a dedicated file
+            audioless_observation = {key: observation[key] for key in observation if key not in robot.microphones}
+            frame = {**audioless_observation, **action, "task": single_task}
             dataset.add_frame(frame)
 
         if display_cameras and not is_headless():
