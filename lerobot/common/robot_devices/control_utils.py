@@ -294,9 +294,8 @@ def control_loop(
             events["exit_early"] = False
             break
 
-    if teleoperate and dataset is not None:
-        for _, microphone in robot.microphones.items():
-            microphone.stop_recording()
+    for _, microphone in robot.microphones.items():
+        microphone.stop_recording()
 
 
 def reset_environment(robot, events, reset_time_s, fps):

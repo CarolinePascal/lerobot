@@ -238,7 +238,11 @@ class Microphone:
         -> CONS : Reading duration does not scale well with the number of channels and reading duration
         """
         if not self.read_queue.empty():
-            audio_readings, self.read_queue = self.read_queue, Queue()
+            audio_readings = self.read_queue
+            #TODO(CarolinePascal): Check if this is the fastest way to do it
+            self.read_queue = Queue()
+            with self.read_queue.mutex:
+                self.read_queue.queue.clear()
             audio_readings = np.array(audio_readings.queue, dtype=self.data_type).reshape(-1, len(self.channels))
         else:
             audio_readings = np.empty((0, len(self.channels)), dtype=self.data_type)
@@ -265,6 +269,15 @@ class Microphone:
 
         if not self.is_connected:
             raise RobotDeviceNotConnectedError(f"Microphone {self.microphone_index} is not connected.")
+        
+        if not self.read_queue.empty():
+            self.read_queue = Queue()
+            with self.read_queue.mutex:
+                self.read_queue.queue.clear()
+        if not self.record_queue.empty():
+            self.record_queue = Queue()
+            with self.record_queue.mutex:
+                self.record_queue.queue.clear()
 
         #Recording case
         if output_file is not None:
@@ -299,6 +312,13 @@ class Microphone:
         if self.stream.active:
             self.stream.stop()  #Wait for all buffers to be processed
             #Remark : stream.abort() flushes the buffers !
+
+        self.read_queue = Queue()
+        with self.read_queue.mutex:
+            self.read_queue.queue.clear()
+        self.record_queue = Queue()
+        with self.record_queue.mutex:
+            self.record_queue.queue.clear()
 
     def disconnect(self) -> None:
 
