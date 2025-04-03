@@ -485,7 +485,6 @@ def get_audio_info(video_path: Path | str) -> dict:
         "audio.channel_layout": audio_stream_info.get("channel_layout", None),
     }
 
-
 def get_video_info(video_path: Path | str) -> dict:
     ffprobe_video_cmd = [
         "ffprobe",

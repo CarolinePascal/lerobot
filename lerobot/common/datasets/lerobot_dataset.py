@@ -76,6 +76,7 @@ from lerobot.common.datasets.video_utils import (
     decode_audio,
     get_safe_default_codec,
     get_video_info,
+    get_audio_info,
 )
 from lerobot.common.robot_devices.robots.utils import Robot
 from lerobot.common.robot_devices.microphones.utils import Microphone
@@ -317,10 +318,11 @@ class LeRobotDatasetMetadata:
         Warning: this function writes info from first episode audio, implicitly assuming that all audio have
         been encoded the same way. Also, this means it assumes the first episode exists.
         """
-        for key in self.audio_keys:
+        bound_audio_keys = {self.features[video_key]["audio"] for video_key in self.video_keys if self.features[video_key]["audio"] is not None}
+        for key in set(self.audio_keys) - bound_audio_keys:
             if not self.features[key].get("info", None):
-                audio_path = self.root / self.get_compressed_audio_file_path(ep_index=0, audio_key=key)
-                self.info["features"][key]["info"] = get_video_info(audio_path)
+                audio_path = self.root / self.get_compressed_audio_file_path(0, key)
+                self.info["features"][key]["info"] = get_audio_info(audio_path)
 
     def __repr__(self):
         feature_keys = list(self.features)
