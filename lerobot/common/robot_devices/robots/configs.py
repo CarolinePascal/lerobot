@@ -69,6 +69,9 @@ class ManipulatorRobotConfig(RobotConfig):
             for cam in self.cameras.values():
                 if not cam.mock:
                     cam.mock = True
+            for mic in self.microphones.values():
+                if not mic.mock:
+                    mic.mock = True
 
         if self.max_relative_target is not None and isinstance(self.max_relative_target, Sequence):
             for name in self.follower_arms:
