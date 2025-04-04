@@ -752,6 +752,8 @@ def validate_feature_dtype_and_shape(name: str, feature: dict, value: np.ndarray
         return validate_feature_numpy_array(name, expected_dtype, expected_shape, value)
     elif expected_dtype in ["image", "video"]:
         return validate_feature_image_or_video(name, expected_shape, value)
+    elif expected_dtype == "audio":
+        return validate_feature_audio(name, expected_shape, value)
     elif expected_dtype == "string":
         return validate_feature_string(name, value)
     else:
@@ -792,6 +794,17 @@ def validate_feature_image_or_video(name: str, expected_shape: list[str], value:
 
     return error_message
 
+def validate_feature_audio(name: str, expected_shape: list[str], value: np.ndarray):
+    error_message = ""
+    if isinstance(value, np.ndarray):
+        actual_shape = value.shape
+        c = expected_shape
+        if len(actual_shape) != 2 or actual_shape[-1] != c[-1]:
+            error_message += f"The feature '{name}' of shape '{actual_shape}' does not have the expected shape '{(c,)}'.\n"
+    else:
+        error_message += f"The feature '{name}' is expected to be of type 'np.ndarray', but type '{type(value)}' provided instead.\n"
+
+    return error_message
 
 def validate_feature_string(name: str, value: str):
     if not isinstance(value, str):

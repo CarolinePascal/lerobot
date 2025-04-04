@@ -208,7 +208,7 @@ class ManipulatorRobot:
         for mic_key, mic in self.microphones.items():
             key = f"observation.audio.{mic_key}"
             mic_ft[key] = {
-                "shape": (len(mic.channels),),
+                "shape": (-1,len(mic.channels)),
                 "names": "channels",
                 "info" : None,
             }
@@ -556,6 +556,8 @@ class ManipulatorRobot:
         action_dict["action"] = action
         for name in self.cameras:
             obs_dict[f"observation.images.{name}"] = images[name]
+        for name in self.microphones:
+            obs_dict[f"observation.audio.{name}"] = audio[name]
 
         return obs_dict, action_dict
 
@@ -604,6 +606,8 @@ class ManipulatorRobot:
         obs_dict["observation.state"] = state
         for name in self.cameras:
             obs_dict[f"observation.images.{name}"] = images[name]
+        for name in self.microphones:
+            obs_dict[f"observation.audio.{name}"] = audio[name]
         return obs_dict
 
     def send_action(self, action: torch.Tensor) -> torch.Tensor:
