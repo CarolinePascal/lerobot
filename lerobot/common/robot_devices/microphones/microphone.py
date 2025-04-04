@@ -223,6 +223,7 @@ class Microphone:
                       channels=max(self.channels)+1, subtype=sf.default_subtype(output_file.suffix[1:])) as file:
             while not self.record_stop_event.is_set():
                 file.write(self.record_queue.get())
+                #self.record_queue.task_done()
     
     def _read(self) -> np.ndarray:
         """
@@ -230,15 +231,17 @@ class Microphone:
         -> PROS : Inherently thread safe, no need to lock the queue, lightweight CPU usage
         -> CONS : Reading duration does not scale well with the number of channels and reading duration
         """
-        if not self.read_queue.empty():
-            audio_readings = self.read_queue
+        try:
+            audio_readings = self.read_queue.queue
+        except Queue.Empty:
+            audio_readings = np.empty((0, len(self.channels)))
+        else:
             #TODO(CarolinePascal): Check if this is the fastest way to do it
             self.read_queue = Queue()
             with self.read_queue.mutex:
                 self.read_queue.queue.clear()
-            audio_readings = np.array(audio_readings.queue, dtype=self.data_type).reshape(-1, len(self.channels))
-        else:
-            audio_readings = np.empty((0, len(self.channels)), dtype=self.data_type)
+                #self.read_queue.all_tasks_done.notify_all()
+            audio_readings = np.array(audio_readings).reshape(-1, len(self.channels))
 
         return audio_readings
 
@@ -253,7 +256,10 @@ class Microphone:
 
         audio_readings = self._read()
 
+        # log the number of seconds it took to read the audio chunk
         self.logs["delta_timestamp_s"] = time.perf_counter() - start_time
+
+        # log the utc time at which the audio chunk was received
         self.logs["timestamp_utc"] = capture_timestamp_utc()
 
         return audio_readings
@@ -263,14 +269,15 @@ class Microphone:
         if not self.is_connected:
             raise RobotDeviceNotConnectedError(f"Microphone {self.microphone_index} is not connected.")
         
-        if not self.read_queue.empty():
-            self.read_queue = Queue()
-            with self.read_queue.mutex:
-                self.read_queue.queue.clear()
-        if not self.record_queue.empty():
-            self.record_queue = Queue()
-            with self.record_queue.mutex:
-                self.record_queue.queue.clear()
+        self.read_queue = Queue()
+        with self.read_queue.mutex:
+            self.read_queue.queue.clear()
+            #self.read_queue.all_tasks_done.notify_all()
+
+        self.record_queue = Queue()
+        with self.record_queue.mutex:
+            self.record_queue.queue.clear()
+            #self.record_queue.all_tasks_done.notify_all()
 
         #Recording case
         if output_file is not None:
@@ -283,20 +290,15 @@ class Microphone:
             self.record_thread.daemon = True
             self.record_thread.start()
             
-        self.logs["start_timestamp"] = capture_timestamp_utc()
-        self.logs["start_stream_timestamp"] = self.stream.time #Timestamp computed according to the same clock used in the stream callback. Might be different from capture_timestamp_utc().
-        
         self.stream.start()
 
     def stop_recording(self) -> None:
 
         if not self.is_connected:
             raise RobotDeviceNotConnectedError(f"Microphone {self.microphone_index} is not connected.")
-        
-        self.logs["stop_timestamp"] = capture_timestamp_utc()
-        self.logs["stop_stream_timestamp"] = self.stream.time #Timestamp computed according to the same clock used in the stream callback. Might be different from capture_timestamp_utc().
 
         if self.record_thread is not None:
+            #self.record_queue.join()
             self.record_stop_event.set()
             self.record_thread.join()
             self.record_thread = None
@@ -305,13 +307,6 @@ class Microphone:
         if self.stream.active:
             self.stream.stop()  #Wait for all buffers to be processed
             #Remark : stream.abort() flushes the buffers !
-
-        self.read_queue = Queue()
-        with self.read_queue.mutex:
-            self.read_queue.queue.clear()
-        self.record_queue = Queue()
-        with self.record_queue.mutex:
-            self.record_queue.queue.clear()
 
     def disconnect(self) -> None:
 
