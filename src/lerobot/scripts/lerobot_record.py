@@ -266,6 +266,13 @@ def record_loop(
     single_task: str | None = None,
     display_data: bool = False,
 ):
+    if display_data:
+        init_rerun(
+            session_name="recording",
+            robot=robot,
+            reset_time=True,
+        )
+
     if dataset is not None and dataset.fps != fps:
         raise ValueError(f"The dataset fps should be equal to requested fps ({dataset.fps} != {fps}).")
 
@@ -412,8 +419,6 @@ def record_loop(
 def record(cfg: RecordConfig) -> LeRobotDataset:
     init_logging()
     logging.info(pformat(asdict(cfg)))
-    if cfg.display_data:
-        init_rerun(session_name="recording")
 
     robot = make_robot_from_config(cfg.robot)
     teleop = make_teleoperator_from_config(cfg.teleop) if cfg.teleop is not None else None
