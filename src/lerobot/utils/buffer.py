@@ -559,6 +559,7 @@ class ReplayBuffer:
             robot_type=None,
             features=features,
             use_videos=True,
+            use_audio_files=True,
         )
 
         # Start writing images if needed

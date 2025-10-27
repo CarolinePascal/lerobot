@@ -194,6 +194,7 @@ def convert_lerobot_dataset_to_cropper_lerobot_dataset(
         robot_type=original_dataset.meta.robot_type,
         features=original_dataset.meta.info["features"],
         use_videos=len(original_dataset.meta.video_keys) > 0,
+        use_audio_files=len(original_dataset.meta.audio_file_keys) > 0,
     )
 
     # Update the metadata for every image key that will be cropped:

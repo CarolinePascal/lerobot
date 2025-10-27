@@ -94,6 +94,7 @@ def features_factory():
         camera_features: dict = DUMMY_CAMERA_FEATURES,
         audio_features: dict = DUMMY_MICROPHONE_FEATURES,
         use_videos: bool = True,
+        use_audio_files: bool = True,
     ) -> dict:
         if use_videos:
             camera_ft = {
@@ -101,10 +102,14 @@ def features_factory():
             }
         else:
             camera_ft = {key: {"dtype": "image", **ft} for key, ft in camera_features.items()}
+        if use_audio_files:
+            audio_ft = {key: {"dtype": "audio_file", **ft} for key, ft in audio_features.items()}
+        else:
+            audio_ft = {key: {"dtype": "audio", **ft} for key, ft in audio_features.items()}
         return {
             **motor_features,
             **camera_ft,
-            **audio_features,
+            **audio_ft,
             **DEFAULT_FEATURES,
         }
 
@@ -121,7 +126,7 @@ def info_factory(features_factory):
         total_frames: int = 0,
         total_tasks: int = 0,
         total_videos: int = 0,
-        total_audio: int = 0,
+        total_audio_files: int = 0,
         total_chunks: int = 0,
         chunks_size: int = DEFAULT_CHUNK_SIZE,
         data_path: str = DEFAULT_PARQUET_PATH,
@@ -131,8 +136,9 @@ def info_factory(features_factory):
         camera_features: dict = DUMMY_CAMERA_FEATURES,
         audio_features: dict = DUMMY_MICROPHONE_FEATURES,
         use_videos: bool = True,
+        use_audio_files: bool = True,
     ) -> dict:
-        features = features_factory(motor_features, camera_features, audio_features, use_videos)
+        features = features_factory(motor_features, camera_features, audio_features, use_videos, use_audio_files)
         return {
             "codebase_version": codebase_version,
             "robot_type": robot_type,
@@ -140,14 +146,14 @@ def info_factory(features_factory):
             "total_frames": total_frames,
             "total_tasks": total_tasks,
             "total_videos": total_videos,
-            "total_audio": total_audio,
+            "total_audio_files": total_audio_files,
             "total_chunks": total_chunks,
             "chunks_size": chunks_size,
             "fps": fps,
             "splits": {},
             "data_path": data_path,
             "video_path": video_path if use_videos else None,
-            "audio_path": audio_path,
+            "audio_path": audio_path if use_audio_files else None,
             "features": features,
         }
 

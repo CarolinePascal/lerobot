@@ -2065,6 +2065,7 @@ def record_dataset(env, policy, cfg):
         cfg.fps,
         root=cfg.dataset_root,
         use_videos=True,
+        use_audio_files=False,
         image_writer_threads=4,
         image_writer_processes=0,
         features=features,

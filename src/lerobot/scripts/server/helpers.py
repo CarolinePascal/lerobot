@@ -66,7 +66,7 @@ def validate_robot_cameras_for_policy(
 
 
 def map_robot_keys_to_lerobot_features(robot: Robot) -> dict[str, dict]:
-    return hw_to_dataset_features(robot.observation_features, "observation", use_video=False)
+    return hw_to_dataset_features(robot.observation_features, "observation", use_video=False, use_audio_file=False)
 
 
 def is_image_key(k: str) -> bool:

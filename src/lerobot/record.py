@@ -148,6 +148,10 @@ class DatasetRecordConfig:
     num_episodes: int = 50
     # Encode frames in the dataset into video
     video: bool = True
+    # Encode audio in the dataset into audio files
+    audio_file: bool = True
+    # Encode audio in the dataset into audio files
+    compress_audio: bool = False
     # Upload dataset to Hugging Face hub.
     push_to_hub: bool = True
     # Upload on private repository on the Hugging Face hub.
@@ -264,7 +268,7 @@ def record_loop(
         }
 
     if (
-        dataset is not None and not robot.name == "lekiwi"
+        dataset is not None and not robot.name == "lekiwi" and len(dataset.meta.audio_file_keys) > 0
     ):  # For now, LeKiwi only supports frame audio recording (which may lead to audio chunks loss, extended post-processing, increased memory usage)
         dataset.add_microphones_recordings(robot.microphones)
     else:
@@ -357,8 +361,8 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
     robot = make_robot_from_config(cfg.robot)
     teleop = make_teleoperator_from_config(cfg.teleop) if cfg.teleop is not None else None
 
-    action_features = hw_to_dataset_features(robot.action_features, "action", cfg.dataset.video)
-    obs_features = hw_to_dataset_features(robot.observation_features, "observation", cfg.dataset.video)
+    action_features = hw_to_dataset_features(robot.action_features, "action", cfg.dataset.video, cfg.dataset.audio_file)
+    obs_features = hw_to_dataset_features(robot.observation_features, "observation", cfg.dataset.video, cfg.dataset.audio_file)
     dataset_features = {**action_features, **obs_features}
 
     if cfg.resume:
@@ -384,6 +388,8 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
             robot_type=robot.name,
             features=dataset_features,
             use_videos=cfg.dataset.video,
+            use_audio_files=cfg.dataset.audio_file,
+            compress_audio=cfg.dataset.compress_audio,
             image_writer_processes=cfg.dataset.num_image_writer_processes,
             image_writer_threads=cfg.dataset.num_image_writer_threads_per_camera * len(robot.cameras),
             batch_encoding_size=cfg.dataset.video_encoding_batch_size,

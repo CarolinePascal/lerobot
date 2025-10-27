@@ -55,8 +55,9 @@ TASKS_PATH = "meta/tasks.jsonl"
 DEFAULT_VIDEO_PATH = "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4"
 DEFAULT_PARQUET_PATH = "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet"
 DEFAULT_IMAGE_PATH = "images/{image_key}/episode_{episode_index:06d}/frame_{frame_index:06d}.png"
-DEFAULT_RAW_AUDIO_PATH = "raw_audio/{audio_key}/episode_{episode_index:06d}.wav"
-DEFAULT_COMPRESSED_AUDIO_PATH = "audio/chunk-{episode_chunk:03d}/{audio_key}/episode_{episode_index:06d}.m4a"
+DEFAULT_RAW_AUDIO_PATH = "raw_audio/{audio_file_key}/episode_{episode_index:06d}.wav"
+DEFAULT_COMPRESSED_AUDIO_PATH = "audio/chunk-{episode_chunk:03d}/{audio_file_key}/episode_{episode_index:06d}.m4a"
+DEFAULT_UNCOMPRESSED_AUDIO_PATH = "audio/chunk-{episode_chunk:03d}/{audio_file_key}/episode_{episode_index:06d}.wav"
 
 DEFAULT_AUDIO_CHUNK_DURATION = 0.5  # seconds
 DEFAULT_INITIAL_AUDIO_BUFFER_DURATION = 1.0  # seconds
@@ -145,7 +146,6 @@ def embed_images(dataset: datasets.Dataset) -> datasets.Dataset:
     dataset = dataset.map(embed_table_storage, batched=False)
     dataset = dataset.with_format(**format)
     return dataset
-
 
 def load_json(fpath: Path) -> Any:
     with open(fpath) as f:
@@ -378,10 +378,12 @@ def get_safe_version(repo_id: str, version: str | packaging.version.Version) -> 
 def get_hf_features_from_features(features: dict) -> datasets.Features:
     hf_features = {}
     for key, ft in features.items():
-        if ft["dtype"] == "video" or ft["dtype"] == "audio":
+        if ft["dtype"] == "video" or ft["dtype"] == "audio_file":
             continue
         elif ft["dtype"] == "image":
             hf_features[key] = datasets.Image()
+        elif ft["dtype"] == "audio":
+            hf_features[key] = datasets.Sequence(length=-1, feature=datasets.Sequence(length=ft["shape"][0], feature=datasets.Value(dtype="int16")))
         elif ft["shape"] == (1,):
             hf_features[key] = datasets.Value(dtype=ft["dtype"])
         elif len(ft["shape"]) == 1:
@@ -409,7 +411,7 @@ def _validate_feature_names(features: dict[str, dict]) -> None:
 
 
 def hw_to_dataset_features(
-    hw_features: dict[str, type | tuple], prefix: str, use_video: bool = True
+    hw_features: dict[str, type | tuple], prefix: str, use_video: bool = True, use_audio_file: bool = True,
 ) -> dict[str, dict]:
     features = {}
     joint_fts = {key: ftype for key, ftype in hw_features.items() if ftype is float}
@@ -443,7 +445,7 @@ def hw_to_dataset_features(
 
     for key, parameters in mic_fts.items():
         features[f"{prefix}.audio.{key}"] = {
-            "dtype": "audio",
+            "dtype": "audio_file" if use_audio_file else "audio",
             "shape": (len(parameters[1]),),
             "names": ["channels"],
             "info": {"sample_rate": parameters[0]},
@@ -464,7 +466,7 @@ def build_dataset_frame(
             frame[key] = np.array([values[name] for name in ft["names"]], dtype=np.float32)
         elif ft["dtype"] in ["image", "video"]:
             frame[key] = values[key.removeprefix(f"{prefix}.images.")]
-        elif ft["dtype"] == "audio":
+        elif ft["dtype"] in ["audio", "audio_file"]:
             frame[key] = values[key.removeprefix(f"{prefix}.audio.")]
 
     return frame
@@ -484,7 +486,7 @@ def dataset_to_policy_features(features: dict[str, dict]) -> dict[str, PolicyFea
             # Backward compatibility for "channel" which is an error introduced in LeRobotDataset v2.0 for ported datasets.
             if names[2] in ["channel", "channels"]:  # (h, w, c) -> (c, h, w)
                 shape = (shape[2], shape[0], shape[1])
-        elif ft["dtype"] == "audio":
+        elif ft["dtype"] in ["audio", "audio_file"]:
             type = FeatureType.AUDIO
             if len(shape) != 2:
                 raise ValueError(f"Number of dimensions of {key} != 2 (shape={shape})")
@@ -510,6 +512,8 @@ def create_empty_dataset_info(
     fps: int,
     features: dict,
     use_videos: bool,
+    use_audio_files: bool,
+    compress_audio: bool,
     robot_type: str | None = None,
 ) -> dict:
     return {
@@ -519,14 +523,14 @@ def create_empty_dataset_info(
         "total_frames": 0,
         "total_tasks": 0,
         "total_videos": 0,
-        "total_audio": 0,
+        "total_audio_files": 0,
         "total_chunks": 0,
         "chunks_size": DEFAULT_CHUNK_SIZE,
         "fps": fps,
         "splits": {},
         "data_path": DEFAULT_PARQUET_PATH,
         "video_path": DEFAULT_VIDEO_PATH if use_videos else None,
-        "audio_path": DEFAULT_COMPRESSED_AUDIO_PATH,
+        "audio_path": DEFAULT_COMPRESSED_AUDIO_PATH if use_audio_files and compress_audio else DEFAULT_UNCOMPRESSED_AUDIO_PATH if use_audio_files and not compress_audio else None,
         "features": features,
     }
 
@@ -813,7 +817,7 @@ def validate_feature_dtype_and_shape(name: str, feature: dict, value: np.ndarray
         return validate_feature_numpy_array(name, expected_dtype, expected_shape, value)
     elif expected_dtype in ["image", "video"]:
         return validate_feature_image_or_video(name, expected_shape, value)
-    elif expected_dtype == "audio":
+    elif expected_dtype in ["audio", "audio_file"]:
         return validate_feature_audio(name, expected_shape, value)
     elif expected_dtype == "string":
         return validate_feature_string(name, value)

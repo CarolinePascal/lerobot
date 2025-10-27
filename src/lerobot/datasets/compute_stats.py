@@ -105,11 +105,15 @@ def compute_episode_stats(episode_data: dict[str, list[str] | np.ndarray], featu
             ep_ft_array = sample_images(data)  # data is a list of image paths
             axes_to_reduce = (0, 2, 3)  # keep channel dim
             keepdims = True
-        elif features[key]["dtype"] == "audio":
+        elif features[key]["dtype"] in ["audio_file"]:
             try:
                 ep_ft_array = sample_audio_from_path(data[0])
             except TypeError:  # Should only be triggered for LeKiwi robot, for which audio is stored chunk by chunk in a visual frame-like manner
                 ep_ft_array = sample_audio_from_data(data)
+            axes_to_reduce = 0
+            keepdims = True
+        elif features[key]["dtype"] in ["audio"]:
+            ep_ft_array = sample_audio_from_data(np.concatenate(data, axis=0))
             axes_to_reduce = 0
             keepdims = True
         else:

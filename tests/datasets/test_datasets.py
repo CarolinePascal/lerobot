@@ -403,8 +403,8 @@ def test_add_frame_audio_file(audio_dataset):
         task="Dummy task",
     )
     # Create the audio file that should be created in the background by the Microphone class
-    for audio_key in dataset.meta.audio_keys:
-        fpath = dataset._get_raw_audio_file_path(0, audio_key)
+    for audio_file_key in dataset.meta.audio_file_keys:
+        fpath = dataset._get_raw_audio_file_path(0, audio_file_key)
         fpath.parent.mkdir(parents=True, exist_ok=True)
         write(
             fpath,
@@ -455,7 +455,7 @@ def test_factory(env_name, repo_id, policy_name):
     dataset = make_dataset(cfg)
     delta_timestamps = dataset.delta_timestamps
     camera_keys = dataset.meta.camera_keys
-    audio_keys = dataset.meta.audio_keys
+    microphone_keys = dataset.meta.microphone_keys
 
     item = dataset[0]
 
@@ -498,7 +498,7 @@ def test_factory(env_name, repo_id, policy_name):
                 # test c,h,w
                 assert item[key].shape[0] == 3, f"{key}"
 
-        for key in audio_keys:
+        for key in microphone_keys:
             assert item[key].dtype == torch.float32, f"{key}"
             assert item[key].max() <= 1.0, f"{key}"
             assert item[key].min() >= -1.0, f"{key}"
