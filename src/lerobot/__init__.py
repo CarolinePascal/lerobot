@@ -188,6 +188,7 @@ available_cameras = [
 # lists all available microphones from `lerobot/microphones`
 available_microphones = [
     "portaudio",
+    "touchlab",
 ]
 
 # lists all available motors from `lerobot/motors`
